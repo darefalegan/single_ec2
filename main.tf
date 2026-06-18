@@ -2,19 +2,18 @@ provider "aws" {
   region = "us-east-1"
 }
 
-resource "aws_instance" "server_1" {
-  ami = "ami-0f8a61b66d1accaee"
+resource "aws_launch_configuration" "server_1" {
+  image_id = "ami-0f8a61b66d1accaee"
   instance_type = "t2.micro"
-  tags = {
-	Name = "server_1"
-  }
   user_data = <<-EOF
               #!/bin/bash
               echo "Hello, World" > index.html
               nohup busybox httpd -f -p ${var.ingress_port} &
               EOF
-  user_data_replace_on_change = true 
-  vpc_security_group_ids = [aws_security_group.security_group_server_1.id]
+  security_groups = [aws_security_group.security_group_server_1.id]
+  lifecycle {
+	create_before_destroy = true
+  }
 }
 
 resource "aws_security_group" "security_group_server_1" {
@@ -28,6 +27,19 @@ resource "aws_security_group" "security_group_server_1" {
 	
 }
 
+resource "aws_autoscaling_group" "asg1" {
+	min_size = 1
+	max_size = 10
+	name = "asg1"
+	launch_configuration = aws_launch_configuration.server_1.name
+	tag {
+		key = "Name"
+		value = "asg_example"
+		propagate_at_launch = true
+	}
+	vpc_zone_identifier = data.aws_subnets.default_subnet.ids
+}
+
 variable "ingress_port" {
 	description = "The port for HTTP traffic"
 	type = number
@@ -38,7 +50,16 @@ output "sg_id" {
 	description = "The ID of the created security group"
 	value = aws_security_group.security_group_server_1.id
 }
-output "aws_instance_pub_ip" {
-	description = "The public IP of the created EC2 instance"
-	value = aws_instance.server_1.public_ip
+
+data "aws_vpc" "default_vpc" {
+	default = true
 }
+
+data "aws_subnets" "default_subnet" {
+	filter {
+		name = "vpc-id"
+		values = [data.aws_vpc.default_vpc.id]
+	}
+}
+
+
